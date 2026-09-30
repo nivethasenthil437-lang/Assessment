@@ -1,0 +1,260 @@
+{
+  "name": "Task2 - Morning Brief (GitHub)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "morning-brief",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "morning-brief-webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/search/repositories",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "q", "value": "topic:automation" },
+            { "name": "sort", "value": "stars" },
+            { "name": "order", "value": "desc" },
+            { "name": "per_page", "value": "20" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/vnd.github+json" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "GitHub Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": { "id": "REPLACE_ME", "name": "GitHub Token" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.first().json.items;\nif (!Array.isArray(items) || items.length === 0) {\n  throw new Error('GitHub returned no repositories');\n}\nreturn items\n  .filter(r => !r.archived)\n  .sort((a, b) => b.stargazers_count - a.stargazers_count)\n  .slice(0, 5)\n  .map(r => ({ json: {\n    name: r.name,\n    full_name: r.full_name,\n    stars: r.stargazers_count,\n    url: r.html_url,\n    description: r.description || ''\n  }}));"
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Top 5 Repos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 200],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $json.full_name + '/readme' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/vnd.github.raw+json" }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": { "response": { "responseFormat": "text" } }
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Fetch README",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 100],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": { "id": "REPLACE_ME", "name": "GitHub Token" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Re-attach README text to each repo (same order). Failed README calls fall back gracefully.\nconst repos = $('Top 5 Repos').all();\nreturn $input.all().map((it, i) => {\n  const repo = repos[i].json;\n  const raw = typeof it.json.data === 'string' ? it.json.data : '';\n  const failed = !!it.json.error || !raw;\n  const snippet = failed ? '(README unavailable)' : raw.replace(/[#>*`\\[\\]]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 140);\n  return { json: { ...repo, readme_snippet: snippet, readme_ok: !failed } };\n});"
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Add README Snippet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.stars }}",
+              "rightValue": 1000,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "IF Stars > 1000",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "line",
+              "value": "=🔥 **{{ $json.name }}** ⭐ {{ $json.stars }}\n{{ $json.readme_snippet }}\n{{ $json.url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Hot Repo",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a2",
+              "name": "line",
+              "value": "=**{{ $json.name }}** ⭐ {{ $json.stars }}\n{{ $json.readme_snippet }}\n{{ $json.url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "Normal Repo",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {},
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "Merge Tiers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lines = $input.all().map(i => i.json.line);\nlet content = '**☀️ Morning Brief — Top GitHub repos (topic: automation)**\\n\\n' + lines.join('\\n\\n');\ncontent = content.slice(0, 1900); // Discord limit is 2000 chars\nreturn [{ json: { content } }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "name": "Compose Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 100]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000011",
+      "name": "Send Discord Digest",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1980, 100],
+      "credentials": {
+        "discordWebhookApi": { "id": "REPLACE_ME", "name": "Discord Webhook" }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "content",
+              "value": "=⚠️ Morning Brief FAILED at {{ $now.toISO() }}: {{ $json.error?.message || $json.error || 'unknown error' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000012",
+      "name": "Error Info",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [660, 420]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000013",
+      "name": "Send Discord Error",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [880, 420],
+      "credentials": {
+        "discordWebhookApi": { "id": "REPLACE_ME", "name": "Discord Webhook" }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "GitHub Search", "type": "main", "index": 0 }]] },
+    "GitHub Search": {
+      "main": [
+        [{ "node": "Top 5 Repos", "type": "main", "index": 0 }],
+        [{ "node": "Error Info", "type": "main", "index": 0 }]
+      ]
+    },
+    "Top 5 Repos": {
+      "main": [
+        [{ "node": "Fetch README", "type": "main", "index": 0 }],
+        [{ "node": "Error Info", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch README": { "main": [[{ "node": "Add README Snippet", "type": "main", "index": 0 }]] },
+    "Add README Snippet": { "main": [[{ "node": "IF Stars > 1000", "type": "main", "index": 0 }]] },
+    "IF Stars > 1000": {
+      "main": [
+        [{ "node": "Hot Repo", "type": "main", "index": 0 }],
+        [{ "node": "Normal Repo", "type": "main", "index": 0 }]
+      ]
+    },
+    "Hot Repo": { "main": [[{ "node": "Merge Tiers", "type": "main", "index": 0 }]] },
+    "Normal Repo": { "main": [[{ "node": "Merge Tiers", "type": "main", "index": 1 }]] },
+    "Merge Tiers": { "main": [[{ "node": "Compose Digest", "type": "main", "index": 0 }]] },
+    "Compose Digest": { "main": [[{ "node": "Send Discord Digest", "type": "main", "index": 0 }]] },
+    "Error Info": { "main": [[{ "node": "Send Discord Error", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
